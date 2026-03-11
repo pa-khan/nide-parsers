@@ -59,6 +59,9 @@ jobs:
             if [ "$lang" == "typescript" ]; then
                 git clone --depth 1 https://github.com/tree-sitter/tree-sitter-typescript
                 cd tree-sitter-typescript/typescript
+            elif [ "$lang" == "vue" ]; then
+                git clone --depth 1 https://github.com/ikatyang/tree-sitter-vue
+                cd tree-sitter-vue
             else
                 git clone --depth 1 https://github.com/tree-sitter/tree-sitter-$lang
                 cd tree-sitter-$lang
