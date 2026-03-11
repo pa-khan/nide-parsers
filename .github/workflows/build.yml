@@ -67,18 +67,9 @@ jobs:
                 cd tree-sitter-$lang
             fi
             
-            # Флаги компиляции
-            if [ "${{ runner.os }}" == "macOS" ]; then
-              SHARED_FLAG="-dynamiclib -Wl,-undefined,dynamic_lookup -arch x86_64 -arch arm64"
-            elif [ "${{ runner.os }}" == "Linux" ]; then
-              SHARED_FLAG="-shared -fPIC"
-            else
-              # Windows (MSVC)
-              SHARED_FLAG="/LD"
-            fi
-            
             # Компиляция
             if [ "${{ runner.os }}" == "Windows" ]; then
+              SHARED_FLAG="/LD"
               if [ -f "src/scanner.c" ]; then
                 cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
               elif [ -f "src/scanner.cc" ]; then
@@ -87,12 +78,22 @@ jobs:
                 cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c
               fi
             else
-              if [ -f "src/scanner.c" ]; then
-                cc $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
-              elif [ -f "src/scanner.cc" ]; then
-                c++ $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.cc
+              if [ "${{ runner.os }}" == "macOS" ]; then
+                CFLAGS="-arch x86_64 -arch arm64"
+                LDFLAGS="-dynamiclib -Wl,-undefined,dynamic_lookup -arch x86_64 -arch arm64"
               else
-                cc $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c
+                CFLAGS=""
+                LDFLAGS="-shared"
+              fi
+              
+              if [ -f "src/scanner.c" ]; then
+                cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
+              elif [ -f "src/scanner.cc" ]; then
+                cc -fPIC $CFLAGS -c -I src src/parser.c -o parser.o
+                c++ -fPIC $CFLAGS -c -I src src/scanner.cc -o scanner.o
+                c++ -fPIC $LDFLAGS -o tree-sitter-$lang.${{ matrix.ext }} parser.o scanner.o
+              else
+                cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c
               fi
             fi
             
