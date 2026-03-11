@@ -5,6 +5,9 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build on ${{ matrix.os }} for ${{ matrix.arch }}
@@ -17,14 +20,9 @@ jobs:
             arch: x86_64
             target_os: linux
             ext: so
-          # macOS x86_64
-          - os: macos-13
-            arch: x86_64
-            target_os: macos
-            ext: dylib
-          # macOS ARM64 (M1/M2/M3)
+          # macOS Universal (M1/M2 + Intel)
           - os: macos-latest
-            arch: aarch64
+            arch: universal
             target_os: macos
             ext: dylib
           # Windows x86_64
@@ -48,6 +46,7 @@ jobs:
       - name: Build parsers
         shell: bash
         run: |
+          WORK_DIR=$(pwd)
           mkdir -p dist
           
           # Список парсеров, которые мы хотим собирать
@@ -55,6 +54,8 @@ jobs:
           
           for lang in "${LANGUAGES[@]}"; do
             echo "Building $lang..."
+            cd "$WORK_DIR"
+            
             if [ "$lang" == "typescript" ]; then
                 git clone --depth 1 https://github.com/tree-sitter/tree-sitter-typescript
                 cd tree-sitter-typescript/typescript
@@ -65,7 +66,7 @@ jobs:
             
             # Флаги компиляции
             if [ "${{ runner.os }}" == "macOS" ]; then
-              SHARED_FLAG="-dynamiclib -Wl,-undefined,dynamic_lookup"
+              SHARED_FLAG="-dynamiclib -Wl,-undefined,dynamic_lookup -arch x86_64 -arch arm64"
             elif [ "${{ runner.os }}" == "Linux" ]; then
               SHARED_FLAG="-shared -fPIC"
             else
@@ -92,10 +93,16 @@ jobs:
               fi
             fi
             
-            # Переносим артефакт в dist и переименовываем по нашему формату
-            mv tree-sitter-$lang.${{ matrix.ext }} ../dist/tree-sitter-$lang-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.ext }}
-            cd ..
+            # Переносим артефакт в dist
+            if [ "${{ runner.os }}" == "macOS" ]; then
+              # Для macOS копируем универсальный бинарник в два файла для x86_64 и aarch64
+              cp tree-sitter-$lang.${{ matrix.ext }} "$WORK_DIR/dist/tree-sitter-$lang-${{ matrix.target_os }}-x86_64.${{ matrix.ext }}"
+              cp tree-sitter-$lang.${{ matrix.ext }} "$WORK_DIR/dist/tree-sitter-$lang-${{ matrix.target_os }}-aarch64.${{ matrix.ext }}"
+            else
+              mv tree-sitter-$lang.${{ matrix.ext }} "$WORK_DIR/dist/tree-sitter-$lang-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+            fi
             
+            cd "$WORK_DIR"
             if [ "$lang" == "typescript" ]; then
                rm -rf tree-sitter-typescript
             else
