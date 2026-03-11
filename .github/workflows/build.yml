@@ -1,0 +1,131 @@
+name: Build Tree-sitter Parsers
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            arch: x86_64
+            target_os: linux
+            ext: so
+          # macOS x86_64
+          - os: macos-13
+            arch: x86_64
+            target_os: macos
+            ext: dylib
+          # macOS ARM64 (M1/M2/M3)
+          - os: macos-latest
+            arch: aarch64
+            target_os: macos
+            ext: dylib
+          # Windows x86_64
+          - os: windows-latest
+            arch: x86_64
+            target_os: windows
+            ext: dll
+
+    steps:
+      - name: Checkout generator repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build parsers
+        shell: bash
+        run: |
+          mkdir -p dist
+          
+          # Список парсеров, которые мы хотим собирать
+          LANGUAGES=("rust" "javascript" "typescript" "python" "vue" "c" "cpp" "go")
+          
+          for lang in "${LANGUAGES[@]}"; do
+            echo "Building $lang..."
+            if [ "$lang" == "typescript" ]; then
+                git clone --depth 1 https://github.com/tree-sitter/tree-sitter-typescript
+                cd tree-sitter-typescript/typescript
+            else
+                git clone --depth 1 https://github.com/tree-sitter/tree-sitter-$lang
+                cd tree-sitter-$lang
+            fi
+            
+            # Флаги компиляции
+            if [ "${{ runner.os }}" == "macOS" ]; then
+              SHARED_FLAG="-dynamiclib -Wl,-undefined,dynamic_lookup"
+            elif [ "${{ runner.os }}" == "Linux" ]; then
+              SHARED_FLAG="-shared -fPIC"
+            else
+              # Windows (MSVC)
+              SHARED_FLAG="/LD"
+            fi
+            
+            # Компиляция
+            if [ "${{ runner.os }}" == "Windows" ]; then
+              if [ -f "src/scanner.c" ]; then
+                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
+              elif [ -f "src/scanner.cc" ]; then
+                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.cc
+              else
+                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c
+              fi
+            else
+              if [ -f "src/scanner.c" ]; then
+                cc $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
+              elif [ -f "src/scanner.cc" ]; then
+                c++ $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.cc
+              else
+                cc $SHARED_FLAG -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c
+              fi
+            fi
+            
+            # Переносим артефакт в dist и переименовываем по нашему формату
+            mv tree-sitter-$lang.${{ matrix.ext }} ../dist/tree-sitter-$lang-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.ext }}
+            cd ..
+            
+            if [ "$lang" == "typescript" ]; then
+               rm -rf tree-sitter-typescript
+            else
+               rm -rf tree-sitter-$lang
+            fi
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: parsers-${{ matrix.target_os }}-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-parsers
+          merge-multiple: true
+
+      - name: Create or update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest Auto-Built Parsers"
+          files: all-parsers/*
+          prerelease: false
+          make_latest: true
