@@ -25,11 +25,6 @@ jobs:
             arch: universal
             target_os: macos
             ext: dylib
-          # Windows x86_64
-          - os: windows-latest
-            arch: x86_64
-            target_os: windows
-            ext: dll
 
     steps:
       - name: Checkout generator repo
@@ -38,10 +33,6 @@ jobs:
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gcc
-
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build parsers
         shell: bash
@@ -68,33 +59,22 @@ jobs:
             fi
             
             # Компиляция
-            if [ "${{ runner.os }}" == "Windows" ]; then
-              SHARED_FLAG="/LD"
-              if [ -f "src/scanner.c" ]; then
-                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
-              elif [ -f "src/scanner.cc" ]; then
-                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.cc
-              else
-                cl $SHARED_FLAG /I src /out:tree-sitter-$lang.${{ matrix.ext }} src/parser.c
-              fi
+            if [ "${{ runner.os }}" == "macOS" ]; then
+              CFLAGS="-arch x86_64 -arch arm64"
+              LDFLAGS="-dynamiclib -Wl,-undefined,dynamic_lookup -arch x86_64 -arch arm64"
             else
-              if [ "${{ runner.os }}" == "macOS" ]; then
-                CFLAGS="-arch x86_64 -arch arm64"
-                LDFLAGS="-dynamiclib -Wl,-undefined,dynamic_lookup -arch x86_64 -arch arm64"
-              else
-                CFLAGS=""
-                LDFLAGS="-shared"
-              fi
-              
-              if [ -f "src/scanner.c" ]; then
-                cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
-              elif [ -f "src/scanner.cc" ]; then
-                cc -fPIC $CFLAGS -c -I src src/parser.c -o parser.o
-                c++ -fPIC $CFLAGS -c -I src src/scanner.cc -o scanner.o
-                c++ -fPIC $LDFLAGS -o tree-sitter-$lang.${{ matrix.ext }} parser.o scanner.o
-              else
-                cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c
-              fi
+              CFLAGS=""
+              LDFLAGS="-shared"
+            fi
+            
+            if [ -f "src/scanner.c" ]; then
+              cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c src/scanner.c
+            elif [ -f "src/scanner.cc" ]; then
+              cc -fPIC $CFLAGS -c -I src src/parser.c -o parser.o
+              c++ -fPIC $CFLAGS -c -I src src/scanner.cc -o scanner.o
+              c++ -fPIC $LDFLAGS -o tree-sitter-$lang.${{ matrix.ext }} parser.o scanner.o
+            else
+              cc -fPIC $CFLAGS $LDFLAGS -I src -o tree-sitter-$lang.${{ matrix.ext }} src/parser.c
             fi
             
             # Переносим артефакт в dist
